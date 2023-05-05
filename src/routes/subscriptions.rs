@@ -1,7 +1,7 @@
 use crate::domain::{NewSubscriber, SubscriberEmail, SubscriberName};
 use crate::email_client::EmailClient;
 use crate::startup::ApplicationBaseUrl;
-use actix_web::{web, HttpResponse, Responder};
+use actix_web::{web, HttpResponse};
 use chrono::Utc;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
@@ -48,31 +48,31 @@ pub async fn subscribe(
     pool: web::Data<PgPool>,
     email_client: web::Data<EmailClient>,
     base_url: web::Data<ApplicationBaseUrl>,
-) -> impl Responder {
+) -> HttpResponse {
     let new_subscriber = match form.0.try_into() {
         Ok(subscriber) => subscriber,
-        Err(_) => return HttpResponse::BadRequest(),
+        Err(_) => return HttpResponse::BadRequest().finish(),
     };
 
     let mut transaction = match pool.begin().await {
         Ok(transaction) => transaction,
-        Err(_) => return HttpResponse::InternalServerError(),
+        Err(_) => return HttpResponse::InternalServerError().finish(),
     };
 
     let subscriber_id = match insert_subscriber(&mut transaction, &new_subscriber).await {
         Ok(subscriber_id) => subscriber_id,
-        Err(_) => return HttpResponse::InternalServerError(),
+        Err(_) => return HttpResponse::InternalServerError().finish(),
     };
     let subscription_token = generate_subscription_token();
     if store_token(&mut transaction, subscriber_id, &subscription_token)
         .await
         .is_err()
     {
-        return HttpResponse::InternalServerError();
+        return HttpResponse::InternalServerError().finish();
     }
 
     if transaction.commit().await.is_err() {
-        return HttpResponse::InternalServerError();
+        return HttpResponse::InternalServerError().finish();
     }
 
     if send_confirmation_email(
@@ -84,10 +84,10 @@ pub async fn subscribe(
     .await
     .is_err()
     {
-        return HttpResponse::InternalServerError();
+        return HttpResponse::InternalServerError().finish();
     }
 
-    HttpResponse::Ok()
+    HttpResponse::Ok().finish()
 }
 
 #[tracing::instrument(
