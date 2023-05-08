@@ -32,7 +32,7 @@ pub async fn change_password(
     if new_password != new_password_check {
         error_message =
             Some("You entered two different new passwords - the field values must match.");
-    } else if password_length < 12 || password_length > 128 {
+    } else if !(12..=128).contains(&password_length) {
         error_message = Some("Password length must be between 12 and 128 characters.");
     } else {
         error_message = None;
@@ -56,7 +56,7 @@ pub async fn change_password(
                 Ok(see_other("/admin/password"))
             }
 
-            AuthError::UnexpectedError(_) => Err(e500(e).into()),
+            AuthError::UnexpectedError(_) => Err(e500(e)),
         };
     }
 
