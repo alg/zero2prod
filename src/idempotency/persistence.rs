@@ -1,10 +1,12 @@
 use super::IdempotencyKey;
+use crate::{configuration::Settings, startup::get_connection_pool};
 use actix_web::body::to_bytes;
 use actix_web::http::StatusCode;
 use actix_web::HttpResponse;
 use sqlx::postgres::PgHasArrayType;
 use sqlx::PgPool;
 use sqlx::{Postgres, Transaction};
+use std::time::Duration;
 use uuid::Uuid;
 
 // this is to teach sqlx about the custom type for the header_pair
@@ -143,4 +145,33 @@ pub async fn try_processing(
 
         Ok(NextAction::ReturnSavedResponse(saved_response))
     }
+}
+
+#[tracing::instrument(skip_all)]
+async fn purge_outdated_idempotency_keys(pool: &PgPool) -> Result<(), anyhow::Error> {
+    sqlx::query!("DELETE FROM idempotency WHERE created_at + interval '10 seconds' < now()")
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+async fn worker_loop(pool: PgPool) -> Result<(), anyhow::Error> {
+    loop {
+        if let Err(e) = purge_outdated_idempotency_keys(&pool).await {
+            tracing::error!(
+                error.cause_chain = ?e,
+                error.message = %e,
+                "Failed to purge outdated idempotency keys.",
+            );
+        }
+
+        tokio::time::sleep(Duration::from_secs(10)).await;
+    }
+}
+
+pub async fn run_worker_until_stopped(configuration: Settings) -> Result<(), anyhow::Error> {
+    let connection_pool = get_connection_pool(&configuration.database);
+
+    worker_loop(connection_pool).await
 }
